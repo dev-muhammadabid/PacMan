@@ -93,21 +93,3 @@ This project is built entirely using standard Java technologies, with a focus on
 | **ENTER** | Start Game / Restart Game |
 
 ---
-
-## 💡 Project Structure
-
-PacMan/
-├── Main.java           # Main class
-├── PacMan.java         # Main game logic, rendering, and game loop
-├── SoundManager.java   # Dedicated class for handling non-blocking sound playback
-├── images/             # Sprite files for PacMan, Ghosts, and Walls
-│   ├── pm-Up.png
-│   ├── ...
-│   └── wall.png
-└── sfx/                # Sound effect files (WAV format required)
-├── pacman_start.wav
-├── pacman_eating.wav
-├── pacman_death.wav
-└── ghost_eating.wav
-
-## Thank You
