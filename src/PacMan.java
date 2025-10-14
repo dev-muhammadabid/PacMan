@@ -1,26 +1,25 @@
 import java.awt.*;
 import java.awt.event.*;
-import java.util.HashSet;
-import java.util.Random;
+import java.util.*;
+import java.util.List;
 import javax.swing.*;
+import javax.swing.Timer;
 
 /**
  * PacMan class: Main game logic and rendering for a simple Pac-Man clone.
- * Extends JPanel for custom drawing and implements ActionListener and KeyListener
- * for the game loop and keyboard input handling.
+ * Added: BFS ghost pathfinding, minor cleanup, and adjustable AI planning.
  */
 public class PacMan extends JPanel implements ActionListener, KeyListener {
 
-    /**
-     * Block class represents a single game object: walls, Pac-Man, enemies, or food.
-     * Stores position, size, image, direction, and velocity.
-     */
     class Block {
-        int x, y, width, height;   // Current position and size
-        Image image;               // Image to draw
-        int startX, startY;        // Initial position for reset
-        char direction = 'U';      // Current moving direction ('U','D','L','R')
-        int velocityX = 0, velocityY = 0; // Current velocity in pixels
+        int x, y, width, height;
+        Image image;
+        int startX, startY;
+        char direction = 'U';
+        int velocityX = 0, velocityY = 0;
+
+        // for ghost AI scheduling (small random offset so ghosts don't all plan same tick)
+        int planOffset = 0;
 
         Block(Image image, int x, int y, int width, int height) {
             this.image = image;
@@ -32,17 +31,12 @@ public class PacMan extends JPanel implements ActionListener, KeyListener {
             this.startY = y;
         }
 
-        /**
-         * Updates the block's direction and velocity.
-         * Also handles Pac-Man image updates when changing direction.
-         * @param newDirection New direction to move.
-         */
         void updateDirection(char newDirection) {
             char prevDirection = this.direction;
             this.direction = newDirection;
             updateVelocity();
 
-            // Update Pac-Man image if direction changes
+            // Update Pac-Man image when direction changes
             if (this == pacman && this.direction != prevDirection) {
                 switch (this.direction) {
                     case 'U' -> this.image = pmUImage;
@@ -52,54 +46,51 @@ public class PacMan extends JPanel implements ActionListener, KeyListener {
                 }
             }
 
-            // Move block by its velocity
+            // Move by velocity (small step)
             this.x += this.velocityX;
             this.y += this.velocityY;
 
-            // Prevent moving into walls
+            // Prevent moving into walls by reversing the step and restoring direction
             for (Block wall : walls) {
                 if (collision(this, wall)) {
                     this.x -= this.velocityX;
                     this.y -= this.velocityY;
                     this.direction = prevDirection;
                     updateVelocity();
+                    break;
                 }
             }
         }
 
-        /**
-         * Updates velocity based on current direction.
-         */
         void updateVelocity() {
+            int step = Math.max(1, tileSize / 4);
             switch (this.direction) {
-                case 'U' -> { velocityX = 0; velocityY = -tileSize / 4; }
-                case 'D' -> { velocityX = 0; velocityY = tileSize / 4; }
-                case 'L' -> { velocityX = -tileSize / 4; velocityY = 0; }
-                case 'R' -> { velocityX = tileSize / 4; velocityY = 0; }
+                case 'U' -> { velocityX = 0; velocityY = -step; }
+                case 'D' -> { velocityX = 0; velocityY = step; }
+                case 'L' -> { velocityX = -step; velocityY = 0; }
+                case 'R' -> { velocityX = step; velocityY = 0; }
             }
         }
 
-        /**
-         * Resets block position and velocity to starting values.
-         */
         void reset() {
             x = startX;
             y = startY;
             velocityX = 0;
             velocityY = 0;
+            direction = 'U';
         }
     }
 
-    // ----------------------- VARIABLES -----------------------
-    private int rowCount = 21, columnCount = 19, tileSize = 32; // Board configuration
-    private int boardWidth = columnCount * tileSize, boardHeight = rowCount * tileSize;
+    // ----------------------- CONFIG -----------------------
+    private final int rowCount = 21, columnCount = 19, tileSize = 32;
+    private final int boardWidth = columnCount * tileSize, boardHeight = rowCount * tileSize;
 
-    // Game images
+    // Images
     private Image wallImage, blueEnemyImage, orangeEnemyImage, pinkEnemyImage, redEnemyImage;
     private Image pmUImage, pmDImage, pmLImage, pmRImage;
 
-    // Map representation as strings
-    private String[] tileMap = {
+    // Map (string rows)
+    private final String[] tileMap = {
             "XXXXXXXXXXXXXXXXXXX",
             "X        X        X",
             "X XX XXX X XXX XX X",
@@ -123,17 +114,22 @@ public class PacMan extends JPanel implements ActionListener, KeyListener {
             "XXXXXXXXXXXXXXXXXXX"
     };
 
-    HashSet<Block> walls, foods, enemies;  // Stores walls, food pellets, and enemies
-    Block pacman;                           // Player character
+    // Game objects
+    private List<Block> walls, foods, enemies;
+    private Block pacman;
 
-    Timer gameLoop;                         // Main game loop timer
-    char[] directions = {'U','D','L','R'};  // Possible directions
-    Random random = new Random();
-    int score = 0, lives = 3;               // Player stats
+    // Game loop & input
+    private Timer gameLoop;
+    private final char[] directions = {'U','D','L','R'};
+    private final Random random = new Random();
+    private int score = 0, lives = 3;
 
-    char nextDirection = ' ';               // Stores next direction input
-    boolean gameStarted = false;            // Track if game has started
-    boolean gameOver = false;               // Track if game is over
+    private char nextDirection = ' ';
+    private boolean gameStarted = false, gameOver = false;
+
+    // AI tuning
+    private final int aiPlanInterval = 6; // lower -> ghosts plan more often (harder)
+    private int tickCounter = 0;
 
     // ----------------------- CONSTRUCTOR -----------------------
     PacMan() {
@@ -142,7 +138,7 @@ public class PacMan extends JPanel implements ActionListener, KeyListener {
         addKeyListener(this);
         setFocusable(true);
 
-        // Load images for walls, enemies, and Pac-Man
+        // Load images (ensure these resources exist at runtime)
         wallImage = new ImageIcon(getClass().getResource("images/wall.png")).getImage();
         blueEnemyImage = new ImageIcon(getClass().getResource("images/blueEnemy.png")).getImage();
         orangeEnemyImage = new ImageIcon(getClass().getResource("images/orangeEnemy.png")).getImage();
@@ -154,34 +150,31 @@ public class PacMan extends JPanel implements ActionListener, KeyListener {
         pmLImage = new ImageIcon(getClass().getResource("images/pm-Left.png")).getImage();
         pmRImage = new ImageIcon(getClass().getResource("images/pm-Right.png")).getImage();
 
-        loadMap();  // Initialize map based on tileMap
+        loadMap(); // populate walls, foods, enemies, pacman
 
-        // Randomize initial enemy directions
+        // randomize initial enemy directions and give them planning offsets
         for (Block enemy : enemies) {
-            char newDirection = directions[random.nextInt(4)];
-            enemy.updateDirection(newDirection);
+            enemy.updateDirection(directions[random.nextInt(4)]);
+            enemy.planOffset = random.nextInt(aiPlanInterval);
         }
 
-        // Start game loop
         gameLoop = new Timer(50, this);
         gameLoop.start();
     }
 
-    // ----------------------- LOAD MAP -----------------------
-    /**
-     * Converts tileMap strings into walls, enemies, Pac-Man, and food blocks.
-     */
+    // ----------------------- MAP LOADING -----------------------
     public void loadMap() {
-        walls = new HashSet<>();
-        foods = new HashSet<>();
-        enemies = new HashSet<>();
+        walls = new ArrayList<>();
+        foods = new ArrayList<>();
+        enemies = new ArrayList<>();
+        pacman = null;
 
         for (int r = 0; r < rowCount; r++) {
+            String row = tileMap[r];
             for (int c = 0; c < columnCount; c++) {
-                String row = tileMap[r];
                 char ch = row.charAt(c);
                 int x = c * tileSize, y = r * tileSize;
-                switch(ch) {
+                switch (ch) {
                     case 'X' -> walls.add(new Block(wallImage, x, y, tileSize, tileSize));
                     case 'b' -> enemies.add(new Block(blueEnemyImage, x, y, tileSize, tileSize));
                     case 'o' -> enemies.add(new Block(orangeEnemyImage, x, y, tileSize, tileSize));
@@ -192,180 +185,289 @@ public class PacMan extends JPanel implements ActionListener, KeyListener {
                 }
             }
         }
+
+        // just in case pacman spot was missing, ensure it exists (fallback)
+        if (pacman == null) pacman = new Block(pmRImage, tileSize*9, tileSize*15, tileSize, tileSize);
     }
 
-    // ----------------------- PAINT -----------------------
+    // ----------------------- RENDERING -----------------------
     @Override
     public void paintComponent(Graphics g) {
         super.paintComponent(g);
-
-        if (!gameStarted) {
-            drawStartScreen(g);
-        } else if (gameOver) {
-            drawGameOverScreen(g);
-        } else {
-            drawGame(g);
-        }
+        if (!gameStarted) drawStartScreen(g);
+        else if (gameOver) drawGameOverScreen(g);
+        else drawGame(g);
     }
 
-    // Draws the start screen before the game begins
     private void drawStartScreen(Graphics g) {
         g.setColor(Color.BLACK);
-        g.fillRect(0,0,getWidth(),getHeight());
+        g.fillRect(0, 0, getWidth(), getHeight());
 
         g.setColor(Color.YELLOW);
         g.setFont(new Font("Arial", Font.BOLD, 64));
-        g.drawString("PAC-MAN", boardWidth/2 - 150, boardHeight/2 - 50);
+        g.drawString("PAC-MAN", boardWidth / 2 - 150, boardHeight / 2 - 50);
 
         g.setColor(Color.YELLOW);
-        g.fillArc(boardWidth/2 - 30, boardHeight/2, 60, 60, 30, 300);
+        g.fillArc(boardWidth / 2 - 30, boardHeight / 2, 60, 60, 30, 300);
 
         g.setColor(Color.WHITE);
         g.setFont(new Font("Arial", Font.PLAIN, 24));
-        g.drawString("Press ENTER to Start", boardWidth/2 - 120, boardHeight/2 + 100);
+        g.drawString("Press ENTER to Start", boardWidth / 2 - 120, boardHeight / 2 + 100);
     }
 
-    // Draws the game over screen
     private void drawGameOverScreen(Graphics g) {
         g.setColor(Color.BLACK);
-        g.fillRect(0,0,getWidth(),getHeight());
+        g.fillRect(0, 0, getWidth(), getHeight());
 
         g.setColor(Color.RED);
         g.setFont(new Font("Arial", Font.BOLD, 64));
-        g.drawString("GAME OVER", boardWidth/2 - 200, boardHeight/2 - 50);
+        g.drawString("GAME OVER", boardWidth / 2 - 200, boardHeight / 2 - 50);
 
         g.setColor(Color.WHITE);
         g.setFont(new Font("Arial", Font.PLAIN, 28));
-        g.drawString("Score: " + score, boardWidth/2 - 70, boardHeight/2 + 20);
+        g.drawString("Score: " + score, boardWidth / 2 - 70, boardHeight / 2 + 20);
 
         g.setFont(new Font("Arial", Font.PLAIN, 24));
-        g.drawString("Press ENTER to Restart", boardWidth/2 - 140, boardHeight/2 + 80);
+        g.drawString("Press ENTER to Restart", boardWidth / 2 - 140, boardHeight / 2 + 80);
     }
 
-    // Draws the gameplay screen
     private void drawGame(Graphics g) {
-        g.drawImage(pacman.image, pacman.x, pacman.y, pacman.width, pacman.height, null);
-        for (Block enemy : enemies) g.drawImage(enemy.image, enemy.x, enemy.y, enemy.width, enemy.height, null);
+        // Draw map objects
         for (Block wall : walls) g.drawImage(wall.image, wall.x, wall.y, wall.width, wall.height, null);
+        for (Block food : foods) {
+            g.setColor(Color.WHITE);
+            g.fillRect(food.x, food.y, food.width, food.height);
+        }
 
+        // Draw enemies then pacman (so pacman appears above sometimes)
+        for (Block enemy : enemies) g.drawImage(enemy.image, enemy.x, enemy.y, enemy.width, enemy.height, null);
+        if (pacman != null) g.drawImage(pacman.image, pacman.x, pacman.y, pacman.width, pacman.height, null);
+
+        // HUD
         g.setColor(Color.WHITE);
-        for (Block food : foods) g.fillRect(food.x, food.y, food.width, food.height);
-
         g.setFont(new Font("Arial", Font.PLAIN, 18));
-        g.drawString("x" + lives + " Score: " + score, tileSize/2, tileSize/2);
+        g.drawString("x" + lives + " Score: " + score, tileSize / 2, tileSize / 2);
     }
 
     // ----------------------- GAME LOOP -----------------------
     @Override
     public void actionPerformed(ActionEvent e) {
-        if (gameStarted && !gameOver) {
-            move(); // Update game state
-        }
-        repaint(); // Refresh the screen
+        if (gameStarted && !gameOver) move();
+        repaint();
     }
 
-    // Handles movement of Pac-Man and enemies, collision detection, and food collection
     public void move() {
+        tickCounter++;
+
+        // Pac-Man input & movement
         if (nextDirection != ' ' && canMove(pacman, nextDirection)) {
             pacman.updateDirection(nextDirection);
             nextDirection = ' ';
         }
-
         pacman.x += pacman.velocityX;
         pacman.y += pacman.velocityY;
 
-        // Wall collisions
-        for (Block wall : walls) if (collision(pacman, wall)) {
-            pacman.x -= pacman.velocityX; pacman.y -= pacman.velocityY; break;
+        // Prevent Pac-Man entering walls
+        for (Block wall : walls) {
+            if (collision(pacman, wall)) {
+                pacman.x -= pacman.velocityX;
+                pacman.y -= pacman.velocityY;
+                break;
+            }
         }
 
-        // Enemy movement and collisions
-        for (Block enemy : enemies) {
+        // Enemy logic
+        Iterator<Block> enemyIter = enemies.iterator();
+        while (enemyIter.hasNext()) {
+            Block enemy = enemyIter.next();
+
+            // Collision with Pac-Man
             if (collision(enemy, pacman)) {
                 lives--;
-                if (lives == 0) { gameOver = true; return; }
+                if (lives <= 0) { gameOver = true; return; }
                 resetPositions();
+                return; // bail until next tick
             }
 
-            // Enemy movement logic
-            if (enemy.y == tileSize*9 && enemy.direction != 'U' && enemy.direction != 'D') enemy.updateDirection('U');
-            enemy.x += enemy.velocityX; enemy.y += enemy.velocityY;
+            // If enemy is aligned to tile grid, consider planning a new direction
+            int enemyRow = enemy.y / tileSize;
+            int enemyCol = enemy.x / tileSize;
 
-            for (Block wall : walls)
-                if (collision(enemy, wall) || enemy.x <= 0 || enemy.x + enemy.width >= boardWidth) {
-                    enemy.x -= enemy.velocityX; enemy.y -= enemy.velocityY;
-                    enemy.updateDirection(directions[random.nextInt(4)]);
+            if ((tickCounter + enemy.planOffset) % aiPlanInterval == 0) {
+                char planned = findNextDirectionTowardsPacman(enemy);
+                if (canMove(enemy, planned)) {
+                    enemy.updateDirection(planned);
+                } else {
+                    // fallback: random direction that is allowed
+                    List<Character> allowed = new ArrayList<>();
+                    for (char d : directions) if (canMove(enemy, d)) allowed.add(d);
+                    if (!allowed.isEmpty()) enemy.updateDirection(allowed.get(random.nextInt(allowed.size())));
                 }
+            }
+
+            // Move enemy
+            enemy.x += enemy.velocityX;
+            enemy.y += enemy.velocityY;
+
+            // If enemy hits wall or boundaries, step back and pick new random direction
+            boolean bumped = false;
+            if (enemy.x <= 0 || enemy.x + enemy.width >= boardWidth || enemy.y <= 0 || enemy.y + enemy.height >= boardHeight)
+                bumped = true;
+            else {
+                for (Block wall : walls) if (collision(enemy, wall)) { bumped = true; break; }
+            }
+
+            if (bumped) {
+                enemy.x -= enemy.velocityX;
+                enemy.y -= enemy.velocityY;
+                // pick a valid random direction
+                List<Character> allowed = new ArrayList<>();
+                for (char d : directions) if (canMove(enemy, d)) allowed.add(d);
+                if (!allowed.isEmpty()) enemy.updateDirection(allowed.get(random.nextInt(allowed.size())));
+            }
         }
 
-        // Check for food collection
-        Block foodEaten = null;
-        for (Block food : foods) if (collision(pacman, food)) { foodEaten = food; score += 10; }
-        foods.remove(foodEaten);
+        // Food collection
+        Block eaten = null;
+        for (Block food : foods) {
+            if (collision(pacman, food)) { eaten = food; score += 10; break; }
+        }
+        if (eaten != null) foods.remove(eaten);
 
-        // Reset map if all food collected
-        if (foods.isEmpty()){ loadMap(); resetPositions(); }
+        // Reset level when no food left
+        if (foods.isEmpty()) {
+            loadMap();
+            resetPositions();
+        }
     }
 
-    /**
-     * Checks if a block can move in the specified direction without hitting a wall.
-     */
+    // ----------------------- HELPERS -----------------------
     private boolean canMove(Block b, char dir) {
-        int tempX=b.x, tempY=b.y;
-        switch(dir){
-            case 'U'-> tempY-=tileSize/4;
-            case 'D'-> tempY+=tileSize/4;
-            case 'L'-> tempX-=tileSize/4;
-            case 'R'-> tempX+=tileSize/4;
+        int tempX = b.x, tempY = b.y;
+        int step = Math.max(1, tileSize / 4);
+        switch (dir) {
+            case 'U' -> tempY -= step;
+            case 'D' -> tempY += step;
+            case 'L' -> tempX -= step;
+            case 'R' -> tempX += step;
         }
-        Block test=new Block(null,tempX,tempY,b.width,b.height);
-        for(Block wall:walls) if(collision(test,wall)) return false;
+        Block test = new Block(null, tempX, tempY, b.width, b.height);
+        for (Block wall : walls) if (collision(test, wall)) return false;
         return true;
     }
 
-    /**
-     * Simple rectangle-based collision detection.
-     */
-    public boolean collision(Block a, Block b){
-        return a.x<b.x+b.width && a.x+a.width>b.x && a.y<b.y+b.height && a.y+a.height>b.y;
+    public boolean collision(Block a, Block b) {
+        return a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
     }
 
-    /**
-     * Resets Pac-Man and all enemy positions to their starting locations.
-     */
     public void resetPositions() {
-        pacman.reset(); nextDirection=' ';
-        for(Block enemy:enemies){ enemy.reset(); enemy.updateDirection(directions[random.nextInt(4)]);}
+        if (pacman != null) pacman.reset();
+        nextDirection = ' ';
+        for (Block enemy : enemies) {
+            enemy.reset();
+            enemy.updateDirection(directions[random.nextInt(4)]);
+            enemy.planOffset = random.nextInt(aiPlanInterval);
+        }
     }
 
-    // ----------------------- KEY LISTENERS -----------------------
-    @Override
-    public void keyTyped(KeyEvent e){}
+    private boolean isWalkable(int row, int col) {
+        if (row < 0 || row >= rowCount || col < 0 || col >= columnCount) return false;
+        return tileMap[row].charAt(col) != 'X';
+    }
+
+    /**
+     * BFS to find the immediate next direction from an enemy towards Pac-Man.
+     * Returns one of 'U','D','L','R'. Falls back to a random direction if path not found.
+     */
+    private char findNextDirectionTowardsPacman(Block enemy) {
+        int startR = Math.max(0, Math.min(rowCount - 1, enemy.y / tileSize));
+        int startC = Math.max(0, Math.min(columnCount - 1, enemy.x / tileSize));
+        int targetR = Math.max(0, Math.min(rowCount - 1, pacman.y / tileSize));
+        int targetC = Math.max(0, Math.min(columnCount - 1, pacman.x / tileSize));
+
+        if (startR == targetR && startC == targetC) return enemy.direction; // already same tile
+
+        int[][] dirs = {{-1,0},{1,0},{0,-1},{0,1}};
+        char[] dirChars = {'U','D','L','R'};
+
+        boolean[][] visited = new boolean[rowCount][columnCount];
+        int[][] prev = new int[rowCount][columnCount];
+        for (int i = 0; i < rowCount; i++) Arrays.fill(prev[i], -1);
+
+        Queue<int[]> q = new LinkedList<>();
+        q.add(new int[]{startR, startC});
+        visited[startR][startC] = true;
+
+        boolean found = false;
+        while (!q.isEmpty()) {
+            int[] cur = q.poll();
+            int r = cur[0], c = cur[1];
+            if (r == targetR && c == targetC) { found = true; break; }
+            for (int i = 0; i < 4; i++) {
+                int nr = r + dirs[i][0], nc = c + dirs[i][1];
+                if (nr >= 0 && nr < rowCount && nc >= 0 && nc < columnCount && !visited[nr][nc] && isWalkable(nr, nc)) {
+                    visited[nr][nc] = true;
+                    prev[nr][nc] = i; // store how we arrived to (nr,nc) from previous
+                    q.add(new int[]{nr, nc});
+                }
+            }
+        }
+
+        if (!found) {
+            // fallback: choose a valid random direction
+            List<Character> allowed = new ArrayList<>();
+            for (char d : directions) if (canMove(enemy, d)) allowed.add(d);
+            if (!allowed.isEmpty()) return allowed.get(random.nextInt(allowed.size()));
+            return directions[random.nextInt(4)];
+        }
+
+        // trace back from target to start to get the first step
+        int r = targetR, c = targetC;
+        while (!(r == startR && c == startC)) {
+            int dir = prev[r][c];
+            if (dir == -1) break; // should not happen
+            int pr = r - dirs[dir][0];
+            int pc = c - dirs[dir][1];
+            if (pr == startR && pc == startC) {
+                return dirChars[dir];
+            }
+            r = pr; c = pc;
+        }
+
+        // last fallback
+        return directions[random.nextInt(4)];
+    }
+
+    // ----------------------- INPUT -----------------------
+    @Override public void keyTyped(KeyEvent e) {}
+    @Override public void keyPressed(KeyEvent e) {}
 
     @Override
-    public void keyPressed(KeyEvent e){}
-
-    @Override
-    public void keyReleased(KeyEvent e){
-        // Start the game if ENTER pressed on start screen
-        if (!gameStarted && e.getKeyCode()==KeyEvent.VK_ENTER){
+    public void keyReleased(KeyEvent e) {
+        if (!gameStarted && e.getKeyCode() == KeyEvent.VK_ENTER) {
             gameStarted = true;
-            resetPositions(); score=0; lives=3; gameOver=false; gameLoop.start();
+            resetPositions();
+            score = 0;
+            lives = 3;
+            gameOver = false;
+            gameLoop.start();
             return;
         }
 
-        // Restart game if ENTER pressed after game over
-        if (gameOver && e.getKeyCode()==KeyEvent.VK_ENTER){
-            resetPositions(); loadMap(); score=0; lives=3; gameOver=false;
+        if (gameOver && e.getKeyCode() == KeyEvent.VK_ENTER) {
+            resetPositions();
+            loadMap();
+            score = 0;
+            lives = 3;
+            gameOver = false;
             return;
         }
 
-        // Handle movement keys
         if (gameStarted && !gameOver) {
-            if (e.getKeyCode()==KeyEvent.VK_UP) nextDirection='U';
-            else if (e.getKeyCode()==KeyEvent.VK_DOWN) nextDirection='D';
-            else if (e.getKeyCode()==KeyEvent.VK_LEFT) nextDirection='L';
-            else if (e.getKeyCode()==KeyEvent.VK_RIGHT) nextDirection='R';
+            if (e.getKeyCode() == KeyEvent.VK_UP) nextDirection = 'U';
+            else if (e.getKeyCode() == KeyEvent.VK_DOWN) nextDirection = 'D';
+            else if (e.getKeyCode() == KeyEvent.VK_LEFT) nextDirection = 'L';
+            else if (e.getKeyCode() == KeyEvent.VK_RIGHT) nextDirection = 'R';
         }
     }
 }

@@ -1,0 +1,1 @@
+Add roles for ghosts (like classic Pac-Man: chase/scatter/ambush)?
