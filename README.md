@@ -1,4 +1,4 @@
-# ![PacMan](src/images/pm-right.png) PacMan: (AI Edition)
+# ![PacMan](src/images/pm-Right.png) PacMan: (AI Edition)
 
 **Relive the classic arcade experience with a modern, adaptive twist.**
 
