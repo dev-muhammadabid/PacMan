@@ -1,8 +1,8 @@
-# 🟡 PacMan: (AI Edition)
+# ![PacMan](src/images/pm-right.png) PacMan: (AI Edition)
 
 **Relive the classic arcade experience with a modern, adaptive twist.**
 
-PacMan: Neo-Retro is a faithful implementation of the iconic maze game, built using Java and Swing for a truly nostalgic feel. While the graphics remain true to the 8-bit era, the enemy AI has been completely overhauled with advanced **Artificial Intelligence** and **Machine Learning** techniques, transforming the ghosts from simple pursuers into coordinated, adaptive, and intelligent adversaries.
+PacMan: It is a faithful implementation of the iconic maze game, built using Java and Swing for a truly nostalgic feel. While the graphics remain true to the 8-bit era, the enemy AI has been completely overhauled with advanced **Artificial Intelligence** and **Machine Learning** techniques, transforming the ghosts from simple pursuers into coordinated, adaptive, and intelligent adversaries.
 
 
 
@@ -69,7 +69,7 @@ This project is built entirely using standard Java technologies, with a focus on
 
 1.  **Clone the Repository:**
     ```bash
-    git clone [YOUR-REPO-LINK-HERE]
+    git clone https://github.com/dev-muhammadabid/PacMan
     cd PacMan
     ```
 2.  **Compile the Code:**
