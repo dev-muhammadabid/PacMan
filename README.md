@@ -93,3 +93,19 @@ This project is built entirely using standard Java technologies, with a focus on
 | **ENTER** | Start Game / Restart Game |
 
 ---
+
+
+## Screenshots
+
+### Start
+![Start](/screenshots/ss_start.png)
+
+---
+
+### Chat Interface
+![Map](/screenshots/ss_map.png)
+
+---
+
+### Powered by Gemini
+![Game Over](/screenshots/ss_gameover.png)
